@@ -29,7 +29,7 @@ def get_stats(fixture_id):
     else:
         return []
 
-def evaluate_over_criteria(stats, elapsed):
+def evaluate_over_criteria(stats, elapsed, goals_home, goals_away):
     home_stats = {stat['type']: stat['value'] for stat in stats[0]['statistics']} if len(stats) > 0 else {}
     away_stats = {stat['type']: stat['value'] for stat in stats[1]['statistics']} if len(stats) > 1 else {}
 
@@ -45,10 +45,16 @@ def evaluate_over_criteria(stats, elapsed):
     over_25 = shots_on_target > 10
 
     # Félidő 0.5+: ha az első félidő legalább 15 perce eltelt és legalább 2 lövés kapura
-    # Feltételezzük, hogy elapsed perc a meccs egész perc száma (pl. 15 vagy nagyobb)
     half_time_05 = (elapsed >= 15 and elapsed <= 45) and (shots_on_target >= 2)
 
-    return over_05, over_15, over_25, half_time_05
+    # 75+ more 1 goal: ha a mérkőzés 75. perc vagy felette jár és 1 góllal vezet az egyik csapat
+    plus_one_goal = False
+    if elapsed >= 75:
+        goal_diff = abs((goals_home or 0) - (goals_away or 0))
+        if goal_diff == 1:
+            plus_one_goal = True
+
+    return over_05, over_15, over_25, half_time_05, plus_one_goal
 
 st.title("⚽ Élő Foci Over Gól Stratégiák")
 
@@ -67,7 +73,7 @@ else:
 
         stats = get_stats(fixture_id)
 
-        over_05, over_15, over_25, half_time_05 = evaluate_over_criteria(stats, elapsed)
+        over_05, over_15, over_25, half_time_05, plus_one_goal = evaluate_over_criteria(stats, elapsed, goals_home, goals_away)
 
         col1, col2 = st.columns([3,1])
         with col1:
@@ -77,7 +83,8 @@ else:
                 f"**Over 0.5:** {'✅' if over_05 else '❌'}  \n"
                 f"**Over 1.5:** {'✅' if over_15 else '❌'}  \n"
                 f"**Over 2.5:** {'✅' if over_25 else '❌'}  \n"
-                f"**Félidő 0.5+:** {'✅' if half_time_05 else '❌'}"
+                f"**Félidő 0.5+:** {'✅' if half_time_05 else '❌'}  \n"
+                f"**75+ more 1 goal:** {'✅' if plus_one_goal else '❌'}"
             )
         with st.expander("Részletes statisztikák"):
             if stats:
