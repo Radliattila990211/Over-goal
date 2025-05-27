@@ -1,10 +1,8 @@
 import streamlit as st
 import requests
-import os
 
 st.set_page_config(page_title="Foci Over stratégia élőben", layout="wide")
 
-# API kulcs a Streamlit Cloud secretsből
 API_KEY = st.secrets["API_KEY"]
 
 headers = {
@@ -35,16 +33,22 @@ def evaluate_over_criteria(stats, elapsed):
     home_stats = {stat['type']: stat['value'] for stat in stats[0]['statistics']} if len(stats) > 0 else {}
     away_stats = {stat['type']: stat['value'] for stat in stats[1]['statistics']} if len(stats) > 1 else {}
 
-    total_shots = home_stats.get('Shots total', 0) + away_stats.get('Shots total', 0)
     shots_on_target = home_stats.get('Shots on Goal', 0) + away_stats.get('Shots on Goal', 0)
-    corners = home_stats.get('Corners', 0) + away_stats.get('Corners', 0)
-    dangerous_attacks = home_stats.get('Dangerous Attacks', 0) + away_stats.get('Dangerous Attacks', 0)
 
-    over_05 = total_shots >= 5 or shots_on_target >= 2 or corners >= 3
-    over_15 = (elapsed >= 25 and total_shots >= 10 and shots_on_target >= 4) or (elapsed >= 60 and total_shots >= 5)
-    over_25 = elapsed <= 35 and total_shots >= 15 and shots_on_target >= 6 and corners >= 5 and dangerous_attacks >= 40
+    # Over 0.5: több mint 5 lövés kapura
+    over_05 = shots_on_target > 5
 
-    return over_05, over_15, over_25
+    # Over 1.5: több mint 8 lövés kapura
+    over_15 = shots_on_target > 8
+
+    # Over 2.5: több mint 10 lövés kapura
+    over_25 = shots_on_target > 10
+
+    # Félidő 0.5+: ha az első félidő legalább 15 perce eltelt és legalább 2 lövés kapura
+    # Feltételezzük, hogy elapsed perc a meccs egész perc száma (pl. 15 vagy nagyobb)
+    half_time_05 = (elapsed >= 15 and elapsed <= 45) and (shots_on_target >= 2)
+
+    return over_05, over_15, over_25, half_time_05
 
 st.title("⚽ Élő Foci Over Gól Stratégiák")
 
@@ -63,7 +67,7 @@ else:
 
         stats = get_stats(fixture_id)
 
-        over_05, over_15, over_25 = evaluate_over_criteria(stats, elapsed)
+        over_05, over_15, over_25, half_time_05 = evaluate_over_criteria(stats, elapsed)
 
         col1, col2 = st.columns([3,1])
         with col1:
@@ -72,7 +76,8 @@ else:
             st.markdown(
                 f"**Over 0.5:** {'✅' if over_05 else '❌'}  \n"
                 f"**Over 1.5:** {'✅' if over_15 else '❌'}  \n"
-                f"**Over 2.5:** {'✅' if over_25 else '❌'}"
+                f"**Over 2.5:** {'✅' if over_25 else '❌'}  \n"
+                f"**Félidő 0.5+:** {'✅' if half_time_05 else '❌'}"
             )
         with st.expander("Részletes statisztikák"):
             if stats:
@@ -81,7 +86,3 @@ else:
                     st.markdown(f"#### {team}")
                     for stat in side['statistics']:
                         st.write(f"{stat['type']}: {stat['value']}")
-            else:
-                st.write("Nincsenek elérhető statisztikák.")
-
-        st.markdown("---")
