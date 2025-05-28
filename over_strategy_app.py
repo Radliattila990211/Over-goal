@@ -55,26 +55,24 @@ def analyze_fixture(fixture):
 
     signals = []
 
-    # 1. Félidő 0,5 over: az első 15 percben 3 kaput eltaláló lövés és nincs gól
+    # 1. Félidő 0,5 over: 15. percig 3 kaput eltaláló lövés és nincs gól
     if elapsed <= 15:
         if total_shots_on_target >= 3 and (goals_home + goals_away) == 0:
             signals.append("félidő 0,5 over")
 
-    # 2. Félidő 0,5 over ++: 25. percig legalább 4 kaput eltaláló lövés
-    if elapsed <= 25:
+    # 2. Félidő 0,5 over ++: 30. percig legalább 4 kaput eltaláló lövés
+    if elapsed <= 30:
         if total_shots_on_target >= 4:
             signals.append("félidő 0,5 over ++")
 
-    # 3. Még egy gól: a 60. percben egyik csapat 1 góllal vezet
+    # 3. Még egy gól: 60. percben 1 gólos különbség
     if 59 <= elapsed <= 61:
-        if abs(goals_home - goals_away) == 1 and (goals_home != goals_away):
+        if abs(goals_home - goals_away) == 1:
             signals.append("még egy gól")
 
-    if signals:
-        return signals
-    else:
-        return None
+    return signals if signals else None
 
+# Streamlit megjelenítés
 st.title("⚽ Élő Foci Stratégiák")
 
 live_fixtures = get_live_fixtures()
@@ -99,8 +97,8 @@ else:
         st.write(f"**Eredmény:** {score_home} - {score_away}")
 
         if signals:
-            st.success(f"Jelzések: {', '.join(signals)}")
+            st.success(f"📢 Jelzések: {', '.join(signals)}")
         else:
-            st.write("Nincs jelzés jelenleg.")
+            st.write("Nincs aktuális jelzés.")
 
         st.markdown("---")
