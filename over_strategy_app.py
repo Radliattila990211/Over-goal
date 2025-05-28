@@ -36,11 +36,9 @@ def analyze_live_match(fixture):
     goals_away = fixture['goals']['away']
     stats = get_fixture_stats(fixture_id)
 
-    # Ha nincs statisztika, nem elemzünk
     if not stats or len(stats) < 2:
         return None
 
-    # Kinyerjük a kapura lövéseket mindkét csapatnál
     try:
         home_stats = {stat['type']: stat['value'] for stat in stats[0]['statistics']}
         away_stats = {stat['type']: stat['value'] for stat in stats[1]['statistics']}
@@ -49,17 +47,13 @@ def analyze_live_match(fixture):
 
     shots_on_target = (home_stats.get('Shots on Goal') or 0) + (away_stats.get('Shots on Goal') or 0)
 
-    # Feltételek a jelzésekhez
-
-    # 15 percig nincs gól, 3 kapura lövés
+    # Jelzésfeltételek
     if elapsed <= 15 and (goals_home == 0 and goals_away == 0) and shots_on_target >= 3:
         return {"signal": "Félidő 0,5 Over", "elapsed": elapsed, "shots_on_target": shots_on_target}
 
-    # 30 percig 4 kapura lövés
     if elapsed <= 30 and shots_on_target >= 4:
         return {"signal": "Félidő 0,5 Over ++", "elapsed": elapsed, "shots_on_target": shots_on_target}
 
-    # 60 perc körül 1 gól különbség
     if elapsed >= 60 and abs((goals_home or 0) - (goals_away or 0)) == 1:
         return {"signal": "Még egy gól", "elapsed": elapsed, "goals_home": goals_home, "goals_away": goals_away}
 
@@ -75,8 +69,8 @@ def main():
         st.info("Jelenleg nincs élő futballmérkőzés.")
         return
 
+    # Jelzések megjelenítése
     signals = []
-
     for fixture in fixtures:
         signal = analyze_live_match(fixture)
         if signal:
@@ -99,6 +93,16 @@ def main():
                         f"Eredmény: {s['score']}")
     else:
         st.info("Jelenleg nincs jelzés az élő meccsekhez.")
+
+    # Összes élő meccs listája
+    st.subheader("Összes élő mérkőzés:")
+    for fixture in fixtures:
+        league = fixture['league']['name']
+        home = fixture['teams']['home']['name']
+        away = fixture['teams']['away']['name']
+        elapsed = fixture['fixture']['status']['elapsed'] or 0
+        score = f"{fixture['goals']['home']} - {fixture['goals']['away']}"
+        st.write(f"**{league}**: {home} vs {away} | Eredmény: {score} | Idő: {elapsed} perc")
 
 if __name__ == "__main__":
     main()
