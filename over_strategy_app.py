@@ -36,8 +36,13 @@ else:
         league = match.get("league", {}).get("name", "Ismeretlen liga")
         home = match.get("teams", {}).get("home", {}).get("name", "Hazai")
         away = match.get("teams", {}).get("away", {}).get("name", "Vendég")
-        score_home = match.get("goals", {}).get("home", 0)
-        score_away = match.get("goals", {}).get("away", 0)
-        elapsed = match.get("fixture", {}).get("status", {}).get("elapsed", 0)
-        
+        score_home = match.get("goals", {}).get("home")
+        score_away = match.get("goals", {}).get("away")
+        elapsed = match.get("fixture", {}).get("status", {}).get("elapsed")
+
+        # Ha valamelyik érték None, adjunk defaultot
+        score_home = score_home if score_home is not None else 0
+        score_away = score_away if score_away is not None else 0
+        elapsed = elapsed if elapsed is not None else 0
+
         st.write(f"**{league}** — {home} vs {away} — Eredmény: {score_home} : {score_away} — {elapsed}'")
