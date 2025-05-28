@@ -21,26 +21,6 @@ def get_live_fixtures():
         st.error(f"Hiba az API hívásban: {response.status_code}")
         return []
 
-@st.cache_data(ttl=3600)
-def get_today_fixtures():
-    today = datetime.today().strftime("%Y-%m-%d")
-    url = f"https://api-football-v1.p.rapidapi.com/v3/fixtures?date={today}"
-    response = requests.get(url, headers=headers)
-    if response.status_code == 200:
-        return response.json().get("response", [])
-    else:
-        st.error(f"Fixture lekérési hiba: {response.status_code}")
-        return []
-
-@st.cache_data(ttl=3600)
-def get_team_stats(team_id, league_id, season):
-    url = f"https://api-football-v1.p.rapidapi.com/v3/teams/statistics?team={team_id}&league={league_id}&season={season}"
-    response = requests.get(url, headers=headers)
-    if response.status_code == 200:
-        return response.json().get("response", {})
-    else:
-        return {}
-
 @st.cache_data(ttl=30)
 def get_stats(fixture_id):
     url = f"https://api-football-v1.p.rapidapi.com/v3/fixtures/statistics?fixture={fixture_id}"
@@ -50,55 +30,82 @@ def get_stats(fixture_id):
     else:
         return []
 
-def evaluate_over_criteria(stats, elapsed, goals_home, goals_away):
+def check_shots_on_target(stats):
+    # A statisztikák listája csapatokra bontva
+    if len(stats) < 2:
+        return 0, 0  # ha nincs adat
     try:
-        home_stats = {stat['type']: stat['value'] for stat in stats[0]['statistics']} if len(stats) > 0 else {}
-        away_stats = {stat['type']: stat['value'] for stat in stats[1]['statistics']} if len(stats) > 1 else {}
-    except:
-        return False, False, False, False, False
+        home_stats = {item['type']: item['value'] for item in stats[0]['statistics']}
+        away_stats = {item['type']: item['value'] for item in stats[1]['statistics']}
+        shots_home = home_stats.get('Shots on Goal') or 0
+        shots_away = away_stats.get('Shots on Goal') or 0
+        return shots_home, shots_away
+    except Exception:
+        return 0, 0
 
-    shots_on_target = (home_stats.get('Shots on Goal') or 0) + (away_stats.get('Shots on Goal') or 0)
-
-    over_05 = shots_on_target > 5
-    over_15 = shots_on_target > 8
-    over_25 = shots_on_target > 10
-    half_time_05 = (15 <= elapsed <= 45) and shots_on_target >= 2
-    plus_one_goal = elapsed >= 75 and abs((goals_home or 0) - (goals_away or 0)) == 1
-
-    return over_05, over_15, over_25, half_time_05, plus_one_goal
-
-def evaluate_pre_match(fixtures):
-    suggestions = []
+def live_signals(fixtures):
+    signals = []
     for match in fixtures:
-        try:
-            home_team = match['teams']['home']
-            away_team = match['teams']['away']
-            league_id = match['league']['id']
-            season = match['league']['season']
+        fixture = match['fixture']
+        score = match['score']
+        elapsed = fixture.get('status', {}).get('elapsed', 0)
+        goals_home = score.get('fulltime', {}).get('home') or score.get('halftime', {}).get('home') or 0
+        goals_away = score.get('fulltime', {}).get('away') or score.get('halftime', {}).get('away') or 0
+        fixture_id = fixture['id']
 
-            home_stats = get_team_stats(home_team['id'], league_id, season)
-            away_stats = get_team_stats(away_team['id'], league_id, season)
+        stats = get_stats(fixture_id)
+        shots_home, shots_away = check_shots_on_target(stats)
+        total_shots = shots_home + shots_away
 
-            home_goals_avg = home_stats.get("goals", {}).get("for", {}).get("average", {}).get("total", 0)
-            away_goals_avg = away_stats.get("goals", {}).get("for", {}).get("average", {}).get("total", 0)
+        # 1. Félidő 0,5 over: első 15 perc, legalább 3 kaput eltaláló lövés, de nincs gól
+        if elapsed <= 15 and total_shots >= 3 and (goals_home + goals_away) == 0:
+            signals.append({
+                "fixture": f"{match['teams']['home']['name']} - {match['teams']['away']['name']}",
+                "signal": "Félidő 0,5 over",
+                "elapsed": elapsed,
+                "shots": total_shots,
+                "goals": goals_home + goals_away
+            })
 
-            if home_goals_avg and away_goals_avg:
-                if float(home_goals_avg) >= 2.5 and float(away_goals_avg) >= 2.5:
-                    suggestions.append({
-                        "home": home_team["name"],
-                        "away": away_team["name"],
-                        "home_avg": home_goals_avg,
-                        "away_avg": away_goals_avg,
-                        "league": match['league']['name'],
-                        "time": match['fixture']['date']
-                    })
-        except Exception as e:
-            continue
-    return suggestions
+        # 2. 0,5 over ++ : a 25. percben legalább 4 kaput eltaláló lövés
+        if elapsed == 25 and total_shots >= 4:
+            signals.append({
+                "fixture": f"{match['teams']['home']['name']} - {match['teams']['away']['name']}",
+                "signal": "0,5 over ++",
+                "elapsed": elapsed,
+                "shots": total_shots,
+                "goals": goals_home + goals_away
+            })
 
-# TAB STRUKTÚRA
-tabs = st.tabs(["Élő Foci Stratégiák", "Meccs előtti ajánlások"])
+        # 3. Még egy gól : 60. percben az egyik csapat 1 góllal vezet
+        if elapsed == 60 and abs(goals_home - goals_away) == 1:
+            signals.append({
+                "fixture": f"{match['teams']['home']['name']} - {match['teams']['away']['name']}",
+                "signal": "Még egy gól",
+                "elapsed": elapsed,
+                "score": f"{goals_home}-{goals_away}"
+            })
 
-# ÉLŐ FOCI
-with tabs[0]:
-    st.header("⚽ Élő Foci |oai:code-citation|
+    return signals
+
+# UI
+
+st.title("⚽ Élő Foci Stratégiák")
+
+live_fixtures = get_live_fixtures()
+
+if not live_fixtures:
+    st.info("Jelenleg nincs élő mérkőzés.")
+else:
+    st.subheader("Élő mérkőzések és jelzések")
+    signals = live_signals(live_fixtures)
+
+    if signals:
+        for s in signals:
+            st.markdown(f"**{s['fixture']}**  -  _{s['signal']}_ (perc: {s['elapsed']})")
+            if 'shots' in s:
+                st.write(f"Kapura lövések összesen: {s['shots']}, Gólok: {s.get('goals', 'N/A')}")
+            if 'score' in s:
+                st.write(f"Eredmény: {s['score']}")
+    else:
+        st.info("Jelenleg nincs jelzés az élő meccseken.")
