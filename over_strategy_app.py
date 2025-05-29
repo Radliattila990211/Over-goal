@@ -1,120 +1,73 @@
 import streamlit as st
 import requests
-import pandas as pd
+from datetime import datetime
 
-# API-Football kulcs
-API_KEY = "fe42fb2bd6d9cbd944bd3533bb53b82f"
-HEADERS = {"x-apisports-key": API_KEY}
-BASE_URL = "https://v3.football.api-sports.io"
+# --- API kulcs és alap URL ---
+API_KEY = "X7PIOp7qahwTboQi9AS8IZFXSIeSdjq0vR1Gpo8YsLk7hFr4NyceZvV74i70"
+BASE_URL = "https://api.sportmonks.com/v3/football"
 
-# Élő meccsek lekérése
+HEADERS = {
+    "Authorization": f"Bearer {API_KEY}"
+}
+
+# --- Élő meccsek lekérése ---
 def get_live_matches():
-    url = f"{BASE_URL}/fixtures?live=all"
-    r = requests.get(url, headers=HEADERS)
-    return r.json().get('response', [])
+    url = f"{BASE_URL}/livescores?include=events,statistics,teams"
+    response = requests.get(url, headers=HEADERS)
+    if response.status_code != 200:
+        st.error(f"Hiba az API elérésében: {response.status_code}")
+        return []
+    data = response.json()
+    return data.get("data", [])
 
-# Statisztikák lekérése
-def get_stats(fixture_id):
-    url = f"{BASE_URL}/fixtures/statistics?fixture={fixture_id}"
-    r = requests.get(url, headers=HEADERS)
-    return r.json().get('response', [])
-
-# Meccs info kinyerése
-def extract_match_info(match):
-    time = match['fixture']['status']['elapsed']
-    home = match['teams']['home']['name']
-    away = match['teams']['away']['name']
-    score_home = match['goals']['home']
-    score_away = match['goals']['away']
-    return {
-        'time': time,
-        'home': home,
-        'away': away,
-        'score': f"{score_home}-{score_away}",
-        'score_home': score_home,
-        'score_away': score_away,
-        'id': match['fixture']['id']
+# --- Feltételek: Első félidő + 70. perc után ---
+def analyze_match(match):
+    result = {
+        "match": f"{match['home_team']['name']} - {match['away_team']['name']}",
+        "minute": match.get("time", {}).get("minute", 0),
+        "score": f"{match['scores']['home_score']} - {match['scores']['away_score']}",
+        "status": match['time']['status'],
+        "strategy1": False,
+        "strategy2": False,
     }
 
-# Stat feldolgozás
-def parse_statistics(stats):
-    res = {'shots_total': 0, 'shots_on_goal': 0, 'possession_home': 0, 'possession_away': 0}
-    for team_stats in stats:
-        for stat in team_stats['statistics']:
-            if stat['type'] == 'Total Shots':
-                res['shots_total'] += stat['value'] or 0
-            elif stat['type'] == 'Shots on Goal':
-                res['shots_on_goal'] += stat['value'] or 0
-            elif stat['type'] == 'Ball Possession':
-                val = int(stat['value'].replace('%', '')) if stat['value'] else 0
-                if team_stats['team']['id'] == stats[0]['team']['id']:
-                    res['possession_home'] = val
-                else:
-                    res['possession_away'] = val
-    return res
+    minute = int(match.get("time", {}).get("minute", 0))
+    home_goals = int(match["scores"]["home_score"])
+    away_goals = int(match["scores"]["away_score"])
+    total_goals = home_goals + away_goals
 
-# Streamlit UI
-st.set_page_config(page_title="Élő Sportfogadás", layout="wide")
-st.title("⚽ Élő Sportfogadási Stratégia – 5.000 Ft bankroll")
-st.caption("Stratégiák: 70. perc utáni gól + első félidő 0.5 gól felett")
+    # Stratégia 1: Első félidő több mint 0.5 gól
+    if minute <= 45 and total_goals == 0:
+        result["strategy1"] = True
+
+    # Stratégia 2: 70. perc után, döntetlen, nincs gól az utóbbi időben
+    if minute >= 70 and total_goals <= 1:
+        result["strategy2"] = True
+
+    return result
+
+# --- Streamlit UI ---
+st.set_page_config(page_title="Élő Foci Stratégia", layout="wide")
+st.title("⚽ Élő Foci Sportfogadási Stratégia - Sportmonks API")
 
 matches = get_live_matches()
 
-# 📺 Élő meccsek kilistázása
-st.subheader("📺 Élőben futó meccsek")
-if matches:
-    live_list = []
+if not matches:
+    st.warning("Jelenleg nincs elérhető élő meccs az API szerint.")
+else:
     for match in matches:
-        info = extract_match_info(match)
-        live_list.append({
-            'Meccs': f"{info['home']} - {info['away']}",
-            'Állás': info['score'],
-            'Perc': info['time']
-        })
-    st.dataframe(pd.DataFrame(live_list))
-else:
-    st.info("Jelenleg nincs élő meccs az API-n.")
+        analysis = analyze_match(match)
+        col1, col2 = st.columns([2, 1])
 
-# Elemzett meccsek
-late_goals = []
-first_half_goals = []
+        with col1:
+            st.subheader(analysis["match"])
+            st.markdown(f"🕒 Perc: `{analysis['minute']}` | Állás: `{analysis['score']}` | Státusz: `{analysis['status']}`")
 
-for match in matches:
-    info = extract_match_info(match)
-    stats = get_stats(info['id'])
-    parsed = parse_statistics(stats)
+        with col2:
+            if analysis["strategy1"]:
+                st.success("✅ **Stratégia 1 - FH Over 0.5 ajánlott!**")
+            if analysis["strategy2"]:
+                st.info("⚠️ **Stratégia 2 - 70. perc utáni gólvárás!**")
 
-    # 70. perc utáni stratégia
-    if info['time'] and info['time'] >= 70 and info['score'] in ['0-0', '1-0', '1-1', '0-1']:
-        if parsed['shots_on_goal'] >= 2 and (parsed['possession_home'] > 60 or parsed['possession_away'] > 60):
-            late_goals.append({
-                'Meccs': f"{info['home']} - {info['away']}",
-                'Állás': info['score'],
-                'Perc': info['time'],
-                'Kapuralövések': parsed['shots_on_goal'],
-                'Labdabirtoklás': f"{parsed['possession_home']}% - {parsed['possession_away']}%"
-            })
-
-    # Első félidős stratégia
-    if info['time'] and info['time'] < 45 and info['score'] in ['0-0', '1-0', '0-1']:
-        if parsed['shots_total'] >= 5 and parsed['shots_on_goal'] >= 2:
-            first_half_goals.append({
-                'Meccs': f"{info['home']} - {info['away']}",
-                'Állás': info['score'],
-                'Perc': info['time'],
-                'Összes lövés': parsed['shots_total'],
-                'Kapuralövések': parsed['shots_on_goal']
-            })
-
-# Megjelenítés
-st.subheader("🔥 70. perc után várható gól")
-if late_goals:
-    st.dataframe(pd.DataFrame(late_goals))
-else:
-    st.info("Nincs meccs, amely megfelelne a 70. perces gól stratégiának.")
-
-st.subheader("⚡ Első félidő 0.5+ gól lehetőség")
-if first_half_goals:
-    st.dataframe(pd.DataFrame(first_half_goals))
-else:
-    st.info("Nincs élő meccs az első félidőben, ahol erős gól-esély lenne.")
+st.markdown("---")
+st.caption("Adatok: Sportmonks Football API | Készítette: Radli Attila")
