@@ -8,7 +8,7 @@ BASE_URL = "https://api.sportmonks.com/v3/football"
 
 # --- Élő meccsek lekérése ---
 def get_live_matches():
-    url = f"{BASE_URL}/livescores?include=events,statistics,teams&api_token={API_KEY}"
+    url = f"{BASE_URL}/livescores/inplay?include=events,statistics,teams&api_token={API_KEY}"
     response = requests.get(url)
     if response.status_code != 200:
         st.error(f"Hiba az API elérésében: {response.status_code}")
