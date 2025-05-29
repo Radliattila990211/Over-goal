@@ -27,9 +27,12 @@ def extract_match_info(match):
     score_home = match['goals']['home']
     score_away = match['goals']['away']
     return {
-        'time': time, 'home': home, 'away': away,
+        'time': time,
+        'home': home,
+        'away': away,
         'score': f"{score_home}-{score_away}",
-        'score_home': score_home, 'score_away': score_away,
+        'score_home': score_home,
+        'score_away': score_away,
         'id': match['fixture']['id']
     }
 
@@ -89,4 +92,29 @@ for match in matches:
                 'Állás': info['score'],
                 'Perc': info['time'],
                 'Kapuralövések': parsed['shots_on_goal'],
-                'Labdabirtoklás': f"{parsed['possession_home']}% - {parsed['possession_
+                'Labdabirtoklás': f"{parsed['possession_home']}% - {parsed['possession_away']}%"
+            })
+
+    # Első félidős stratégia
+    if info['time'] and info['time'] < 45 and info['score'] in ['0-0', '1-0', '0-1']:
+        if parsed['shots_total'] >= 5 and parsed['shots_on_goal'] >= 2:
+            first_half_goals.append({
+                'Meccs': f"{info['home']} - {info['away']}",
+                'Állás': info['score'],
+                'Perc': info['time'],
+                'Összes lövés': parsed['shots_total'],
+                'Kapuralövések': parsed['shots_on_goal']
+            })
+
+# Megjelenítés
+st.subheader("🔥 70. perc után várható gól")
+if late_goals:
+    st.dataframe(pd.DataFrame(late_goals))
+else:
+    st.info("Nincs meccs, amely megfelelne a 70. perces gól stratégiának.")
+
+st.subheader("⚡ Első félidő 0.5+ gól lehetőség")
+if first_half_goals:
+    st.dataframe(pd.DataFrame(first_half_goals))
+else:
+    st.info("Nincs élő meccs az első félidőben, ahol erős gól-esély lenne.")
