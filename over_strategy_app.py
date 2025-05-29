@@ -1,17 +1,11 @@
 import streamlit as st
 import requests
 
-# ------------------ BEÁLLÍTÁSOK ------------------
-
 API_TOKEN = "iV9xxHhZkgZQqudhrzq2r697fd21b9VcR3z50gSFpXV9K4Yimvj4HWBFf3Mn"
 BASE_URL = "https://api.sportmonks.com/v3/football"
-BANKROLL = 5000
-TET = 500
-
-# ------------------ SEGÉDFÜGGVÉNYEK ------------------
 
 def get_live_matches():
-    url = f"{BASE_URL}/livescores/inplay?api_token={API_TOKEN}&include=participants;statistics;scores;time"
+    url = f"{BASE_URL}/livescores?api_token={API_TOKEN}&include=participants;statistics;scores;time"
     try:
         response = requests.get(url)
         if response.status_code == 200:
@@ -20,102 +14,81 @@ def get_live_matches():
             st.error(f"Hiba az API elérésében: {response.status_code}")
             return []
     except Exception as e:
-        st.error(f"Hálózati hiba: {e}")
+        st.error(f"Hiba történt: {e}")
         return []
 
-def parse_teams(match):
-    participants = match.get("participants", [])
-    home = next((p["name"] for p in participants if p["meta"]["location"] == "home"), "Hazai")
-    away = next((p["name"] for p in participants if p["meta"]["location"] == "away"), "Vendég")
-    return home, away
-
-def get_stat(match, stat_type, location=None):
-    stats = match.get("statistics", [])
-    filtered = [s for s in stats if s["type"] == stat_type]
-    if location:
-        filtered = [s for s in filtered if s.get("location") == location]
-    return sum(int(s.get("value", 0)) for s in filtered)
-
-def match_time(match):
+def parse_match_data(match):
     try:
-        return int(match.get("time", {}).get("minute", 0))
-    except:
-        return 0
+        home_team = match['participants'][0]['name']
+        away_team = match['participants'][1]['name']
+        score = match['scores']['ft_score']
+        minute = int(match['time']['minute'])
 
-def get_score(match):
-    scores = match.get("scores", {})
-    return int(scores.get("home_score", 0)), int(scores.get("away_score", 0))
+        stats = {s['type']: s for s in match.get('statistics', [])}
 
-# ------------------ STRATÉGIÁK ------------------
+        total_shots = int(stats.get('shots_total', {}).get('home', 0)) + int(stats.get('shots_total', {}).get('away', 0))
+        shots_on_target = int(stats.get('shots_on_target', {}).get('home', 0)) + int(stats.get('shots_on_target', {}).get('away', 0))
+        possession_home = int(stats.get('ball_possession', {}).get('home', 0))
+        possession_away = int(stats.get('ball_possession', {}).get('away', 0))
 
-def strategy_70_min_goal(matches):
-    tips = []
-    for match in matches:
-        try:
-            time = match_time(match)
-            home_goals, away_goals = get_score(match)
-            if time >= 70 and (home_goals, away_goals) in [(0,0), (1,0), (0,1), (1,1)]:
-                shots_on_target = get_stat(match, "shots_on_target")
-                poss_home = get_stat(match, "possession", "home")
-                poss_away = get_stat(match, "possession", "away")
-                if shots_on_target >= 6 and (poss_home + poss_away) > 80:
-                    home, away = parse_teams(match)
-                    tips.append({
-                        "match": f"{home} vs {away}",
-                        "állás": f"{home_goals}-{away_goals}",
-                        "perc": time,
-                        "kapuralövések": shots_on_target,
-                        "labdabirtoklás": f"{poss_home}% - {poss_away}%"
-                    })
-        except:
-            continue
-    return tips
+        return {
+            'home': home_team,
+            'away': away_team,
+            'score': score,
+            'minute': minute,
+            'shots_total': total_shots,
+            'shots_on_target': shots_on_target,
+            'possession': f"{possession_home}% - {possession_away}%"
+        }
+    except Exception as e:
+        st.warning(f"Nem sikerült feldolgozni egy meccset: {e}")
+        return None
 
-def strategy_first_half_goal(matches):
-    tips = []
-    for match in matches:
-        try:
-            time = match_time(match)
-            if time <= 45:
-                shots = get_stat(match, "shots")
-                shots_on_target = get_stat(match, "shots_on_target")
-                if shots >= 5 and shots_on_target >= 2:
-                    home, away = parse_teams(match)
-                    home_goals, away_goals = get_score(match)
-                    tips.append({
-                        "match": f"{home} vs {away}",
-                        "állás": f"{home_goals}-{away_goals}",
-                        "perc": time,
-                        "lövés összesen": shots,
-                        "kapuralövések": shots_on_target
-                    })
-        except:
-            continue
-    return tips
+def goal_after_70_strategy(parsed):
+    if parsed and 70 <= parsed['minute'] <= 90:
+        if parsed['score'] in ['0-0', '1-0', '0-1', '1-1']:
+            if parsed['shots_total'] >= 15 and parsed['shots_on_target'] >= 5:
+                return True
+    return False
 
-# ------------------ STREAMLIT FELÜLET ------------------
+def first_half_goal_strategy(parsed):
+    if parsed and 1 <= parsed['minute'] <= 45:
+        if parsed['shots_total'] >= 5 and parsed['shots_on_target'] >= 2:
+            return True
+    return False
 
-st.set_page_config(page_title="⚽ Élő Sportfogadási Stratégia", layout="wide")
+# Streamlit UI
 st.title("📊 Élő Sportfogadási Stratégia Jelzések")
-st.caption("🔄 A meccsek statisztikái valós időben frissülnek a Sportmonks API alapján.")
-st.markdown(f"💰 **Bankroll:** {BANKROLL} Ft | 🎯 **Tét meccsenként:** {TET} Ft")
 
-live_matches = get_live_matches()
+matches = get_live_matches()
 
-with st.expander("1️⃣ 70. perc utáni gól stratégia", expanded=True):
-    strat1 = strategy_70_min_goal(live_matches)
-    if strat1:
-        for tip in strat1:
-            st.success(f"⚽ {tip['match']} | Állás: {tip['állás']} | {tip['perc']}. perc\n"
-                       f"Kapuralövések: {tip['kapuralövések']}, Labdabirtoklás: {tip['labdabirtoklás']}")
+if not matches:
+    st.info("🔄 Jelenleg nincs élő meccs vagy hiba történt az API elérésében.")
+else:
+    strategy_70 = []
+    strategy_first_half = []
+
+    for match in matches:
+        parsed = parse_match_data(match)
+        if goal_after_70_strategy(parsed):
+            strategy_70.append(parsed)
+        if first_half_goal_strategy(parsed):
+            strategy_first_half.append(parsed)
+
+    st.subheader("1️⃣ 70. perc utáni gól stratégia")
+    if strategy_70:
+        for match in strategy_70:
+            st.markdown(f"**{match['home']} vs {match['away']}** - {match['score']} ({match['minute']}. perc)")
+            st.text(f"Kapuralövések: {match['shots_on_target']}, Összes lövés: {match['shots_total']}, Labdabirtoklás: {match['possession']}")
+            st.markdown("---")
     else:
         st.info("Nincs olyan meccs, amely megfelel a 70. perc utáni gól stratégiának.")
 
-with st.expander("2️⃣ Első félidő +0.5 gól stratégia", expanded=True):
-    strat2 = strategy_first_half_goal(live_matches)
-    if strat2:
-        for tip in strat2:
-            st.warning(f"📍 {tip['match']} | Állás: {tip['állás']} | {tip['perc']}. perc\n"
-                       f"Lövések: {tip['lövés összesen']}, Kapuralövések: {tip['kapuralövések']}")
+    st.subheader("2️⃣ Első félidő +0.5 gól stratégia")
+    if strategy_first_half:
+        for match in strategy_first_half:
+            st.markdown(f"**{match['home']} vs {match['away']}** - {match['score']} ({match['minute']}. perc)")
+            st.text(f"Kapuralövések: {match['shots_on_target']}, Összes lövés: {match['shots_total']}, Labdabirtoklás: {match['possession']}")
+            st.markdown("---")
     else:
         st.info("Nincs olyan meccs, amely megfelel az első félidős gól stratégiának.")
