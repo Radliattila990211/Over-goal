@@ -1,5 +1,6 @@
 import streamlit as st
 import requests
+import json
 
 # Állítsd be az API kulcsod
 API_KEY = "iV9xxHhZkgZQqudhrzq2r697fd21b9VcR3z50gSFpXV9K4Yimvj4HWBFf3Mn"
@@ -20,12 +21,15 @@ def get_live_matches():
         }
         response = requests.get(API_URL, params=params)
         if response.status_code == 200:
-            return response.json().get("data", [])
+            st.success("✅ API válasz sikeres!")
+            json_data = response.json()
+            st.expander("🔍 API nyers válasz").json(json_data)
+            return json_data.get("data", [])
         else:
-            st.error(f"Hiba az API elérésében: {response.status_code}")
+            st.error(f"❌ Hiba az API elérésében: {response.status_code}")
             return []
     except Exception as e:
-        st.error(f"Hiba történt: {e}")
+        st.error(f"⚠️ Hiba történt: {e}")
         return []
 
 # Meccsek feldolgozása
@@ -67,26 +71,30 @@ def analyze_matches(matches):
                 first_half_goals.append(f"{home_name} vs {away_name} | Perc: {minute} | Lövések: {total_shots} | Kapura: {total_on_target}")
 
         except Exception as e:
-            st.warning(f"Nem sikerült feldolgozni egy meccset: {e}")
+            st.warning(f"⚠️ Nem sikerült feldolgozni egy meccset: {e}")
             continue
 
     return goal_70min, first_half_goals
 
 # Lefuttatjuk a stratégiákat
 matches = get_live_matches()
-goal_70min, first_half_goals = analyze_matches(matches)
 
-# 📢 Eredmények megjelenítése
-st.subheader("1️⃣ 70. perc utáni gól stratégia")
-if goal_70min:
-    for item in goal_70min:
-        st.success(item)
+if not matches:
+    st.warning("⚠️ Nem kaptunk vissza meccseket az API-tól.")
 else:
-    st.info("Nincs olyan meccs, amely megfelel a 70. perc utáni gól stratégiának.")
+    goal_70min, first_half_goals = analyze_matches(matches)
 
-st.subheader("2️⃣ Első félidő +0.5 gól stratégia")
-if first_half_goals:
-    for item in first_half_goals:
-        st.warning(item)
-else:
-    st.info("Nincs olyan meccs, amely megfelel az első félidős gól stratégiának.")
+    # 📢 Eredmények megjelenítése
+    st.subheader("1️⃣ 70. perc utáni gól stratégia")
+    if goal_70min:
+        for item in goal_70min:
+            st.success(item)
+    else:
+        st.info("Nincs olyan meccs, amely megfelel a 70. perc utáni gól stratégiának.")
+
+    st.subheader("2️⃣ Első félidő +0.5 gól stratégia")
+    if first_half_goals:
+        for item in first_half_goals:
+            st.warning(item)
+    else:
+        st.info("Nincs olyan meccs, amely megfelel az első félidős gól stratégiának.")
