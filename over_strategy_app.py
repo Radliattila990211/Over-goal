@@ -56,6 +56,23 @@ st.title("⚽ Élő Sportfogadási Stratégia – 5.000 Ft bankroll")
 st.caption("Stratégiák: 70. perc utáni gól + első félidő 0.5 gól felett")
 
 matches = get_live_matches()
+
+# 📺 Élő meccsek kilistázása
+st.subheader("📺 Élőben futó meccsek")
+if matches:
+    live_list = []
+    for match in matches:
+        info = extract_match_info(match)
+        live_list.append({
+            'Meccs': f"{info['home']} - {info['away']}",
+            'Állás': info['score'],
+            'Perc': info['time']
+        })
+    st.dataframe(pd.DataFrame(live_list))
+else:
+    st.info("Jelenleg nincs élő meccs az API-n.")
+
+# Elemzett meccsek
 late_goals = []
 first_half_goals = []
 
@@ -72,29 +89,4 @@ for match in matches:
                 'Állás': info['score'],
                 'Perc': info['time'],
                 'Kapuralövések': parsed['shots_on_goal'],
-                'Labdabirtoklás': f"{parsed['possession_home']}% - {parsed['possession_away']}%"
-            })
-
-    # Első félidős stratégia
-    if info['time'] and info['time'] < 45 and info['score'] in ['0-0', '1-0', '0-1']:
-        if parsed['shots_total'] >= 5 and parsed['shots_on_goal'] >= 2:
-            first_half_goals.append({
-                'Meccs': f"{info['home']} - {info['away']}",
-                'Állás': info['score'],
-                'Perc': info['time'],
-                'Összes lövés': parsed['shots_total'],
-                'Kapuralövések': parsed['shots_on_goal']
-            })
-
-# Megjelenítés
-st.subheader("🔥 70. perc után várható gól")
-if late_goals:
-    st.dataframe(pd.DataFrame(late_goals))
-else:
-    st.info("Nincs meccs, amely megfelelne a 70. perces gól stratégiának.")
-
-st.subheader("⚡ Első félidő 0.5+ gól lehetőség")
-if first_half_goals:
-    st.dataframe(pd.DataFrame(first_half_goals))
-else:
-    st.info("Nincs élő meccs az első félidőben, ahol erős gól-esély lenne.")
+                'Labdabirtoklás': f"{parsed['possession_home']}% - {parsed['possession_
