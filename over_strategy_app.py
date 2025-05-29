@@ -1,81 +1,100 @@
 import streamlit as st
 import requests
-from datetime import datetime
+import pandas as pd
 
-st.set_page_config(page_title="Élő Foci Stratégiák", layout="wide")
+# API-Football kulcs
+API_KEY = "fe42fb2bd6d9cbd944bd3533bb53b82f"
+HEADERS = {"x-apisports-key": API_KEY}
+BASE_URL = "https://v3.football.api-sports.io"
 
-API_KEY = "fe42fb2bd6d9cbd944bd3533bb53b82f"  # Hivatalos API-Football kulcs
-headers = {
-    "x-apisports-key": API_KEY
-}
+# Élő meccsek lekérése
+def get_live_matches():
+    url = f"{BASE_URL}/fixtures?live=all"
+    r = requests.get(url, headers=HEADERS)
+    return r.json().get('response', [])
 
-@st.cache_data(ttl=30)
-def get_live_fixtures():
-    url = "https://v3.football.api-sports.io/fixtures?live=all"
-    response = requests.get(url, headers=headers)
-    if response.status_code == 200:
-        return response.json().get('response', [])
-    else:
-        st.error(f"Hiba az API hívásban: {response.status_code}")
-        return []
-
-@st.cache_data(ttl=30)
+# Statisztikák lekérése
 def get_stats(fixture_id):
-    url = f"https://v3.football.api-sports.io/fixtures/statistics?fixture={fixture_id}"
-    response = requests.get(url, headers=headers)
-    if response.status_code == 200:
-        return response.json().get('response', [])
-    else:
-        return []
+    url = f"{BASE_URL}/fixtures/statistics?fixture={fixture_id}"
+    r = requests.get(url, headers=HEADERS)
+    return r.json().get('response', [])
 
-def check_signals(fixture):
-    fixture_id = fixture['fixture']['id']
-    elapsed = fixture['fixture']['status']['elapsed']
-    goals_home = fixture['goals']['home']
-    goals_away = fixture['goals']['away']
-    stats = get_stats(fixture_id)
+# Meccs info kinyerése
+def extract_match_info(match):
+    time = match['fixture']['status']['elapsed']
+    home = match['teams']['home']['name']
+    away = match['teams']['away']['name']
+    score_home = match['goals']['home']
+    score_away = match['goals']['away']
+    return {
+        'time': time, 'home': home, 'away': away,
+        'score': f"{score_home}-{score_away}",
+        'score_home': score_home, 'score_away': score_away,
+        'id': match['fixture']['id']
+    }
 
-    if len(stats) < 2:
-        return []
+# Stat feldolgozás
+def parse_statistics(stats):
+    res = {'shots_total': 0, 'shots_on_goal': 0, 'possession_home': 0, 'possession_away': 0}
+    for team_stats in stats:
+        for stat in team_stats['statistics']:
+            if stat['type'] == 'Total Shots':
+                res['shots_total'] += stat['value'] or 0
+            elif stat['type'] == 'Shots on Goal':
+                res['shots_on_goal'] += stat['value'] or 0
+            elif stat['type'] == 'Ball Possession':
+                val = int(stat['value'].replace('%', '')) if stat['value'] else 0
+                if team_stats['team']['id'] == stats[0]['team']['id']:
+                    res['possession_home'] = val
+                else:
+                    res['possession_away'] = val
+    return res
 
-    home_stats = {stat['type']: stat['value'] for stat in stats[0].get('statistics', [])}
-    away_stats = {stat['type']: stat['value'] for stat in stats[1].get('statistics', [])}
+# Streamlit UI
+st.set_page_config(page_title="Élő Sportfogadás", layout="wide")
+st.title("⚽ Élő Sportfogadási Stratégia – 5.000 Ft bankroll")
+st.caption("Stratégiák: 70. perc utáni gól + első félidő 0.5 gól felett")
 
-    shots_on_target = (home_stats.get('Shots on Goal') or 0) + (away_stats.get('Shots on Goal') or 0)
-    total_goals = (goals_home or 0) + (goals_away or 0)
-    signal_list = []
+matches = get_live_matches()
+late_goals = []
+first_half_goals = []
 
-    # Félidő 0.5 Over
-    if elapsed is not None and elapsed <= 15 and shots_on_target >= 3 and total_goals == 0:
-        signal_list.append("Félidő 0.5 Over")
+for match in matches:
+    info = extract_match_info(match)
+    stats = get_stats(info['id'])
+    parsed = parse_statistics(stats)
 
-    # 0.5 Over ++
-    if elapsed is not None and elapsed <= 30 and shots_on_target >= 4:
-        signal_list.append("0.5 Over ++")
+    # 70. perc utáni stratégia
+    if info['time'] and info['time'] >= 70 and info['score'] in ['0-0', '1-0', '1-1', '0-1']:
+        if parsed['shots_on_goal'] >= 2 and (parsed['possession_home'] > 60 or parsed['possession_away'] > 60):
+            late_goals.append({
+                'Meccs': f"{info['home']} - {info['away']}",
+                'Állás': info['score'],
+                'Perc': info['time'],
+                'Kapuralövések': parsed['shots_on_goal'],
+                'Labdabirtoklás': f"{parsed['possession_home']}% - {parsed['possession_away']}%"
+            })
 
-    # Lesz még egy gól
-    if elapsed is not None and elapsed >= 60 and abs((goals_home or 0) - (goals_away or 0)) == 1:
-        signal_list.append("Lesz még egy gól")
+    # Első félidős stratégia
+    if info['time'] and info['time'] < 45 and info['score'] in ['0-0', '1-0', '0-1']:
+        if parsed['shots_total'] >= 5 and parsed['shots_on_goal'] >= 2:
+            first_half_goals.append({
+                'Meccs': f"{info['home']} - {info['away']}",
+                'Állás': info['score'],
+                'Perc': info['time'],
+                'Összes lövés': parsed['shots_total'],
+                'Kapuralövések': parsed['shots_on_goal']
+            })
 
-    return signal_list
-
-# Oldal megjelenítés
-st.title("⚽ Élő Foci Stratégiák")
-live_matches = get_live_fixtures()
-st.subheader(f"Élő mérkőzések száma: {len(live_matches)}")
-
-if not live_matches:
-    st.warning("Nincs élő mérkőzés jelenleg.")
+# Megjelenítés
+st.subheader("🔥 70. perc után várható gól")
+if late_goals:
+    st.dataframe(pd.DataFrame(late_goals))
 else:
-    for fixture in live_matches:
-        teams = f"{fixture['teams']['home']['name']} vs {fixture['teams']['away']['name']}"
-        elapsed = fixture['fixture']['status']['elapsed']
-        st.markdown(f"### {teams} - {elapsed}'")
+    st.info("Nincs meccs, amely megfelelne a 70. perces gól stratégiának.")
 
-        signals = check_signals(fixture)
-
-        if signals:
-            for signal in signals:
-                st.success(f"✅ {signal}")
-        else:
-            st.info("Nincs jelzés jelenleg.")
+st.subheader("⚡ Első félidő 0.5+ gól lehetőség")
+if first_half_goals:
+    st.dataframe(pd.DataFrame(first_half_goals))
+else:
+    st.info("Nincs élő meccs az első félidőben, ahol erős gól-esély lenne.")
